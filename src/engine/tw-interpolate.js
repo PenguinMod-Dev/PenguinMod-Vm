@@ -24,6 +24,11 @@ const setupInitialState = runtime => {
             );
             renderer.updateDrawableEffect(drawableID, 'ghost', target.effects.ghost);
         }
+        /*
+        TODO: Old Broken Code. revert if above doesnt work or smt
+        if (renderer && target.interpolationData) {
+            target.updateAllDrawableProperties();
+        }*/
 
         if (target.visible && !target.isStage) {
             target.interpolationData = {

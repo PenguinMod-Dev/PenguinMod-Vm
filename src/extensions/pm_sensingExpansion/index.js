@@ -50,8 +50,6 @@ ${blockSeparator}
 </block>
 %b18>
 %b19>
-%b23>
-%b24>
 ${blockSeparator}
 %b14>
 <block type="sensing_getspritewithattrib">
@@ -329,41 +327,6 @@ class pmSensingExpansion {
                         }
                     }
                 },
-                {
-                    opcode: 'getLastKeyPressed',
-                    text: formatMessage({
-                        id: 'tw.blocks.lastKeyPressed',
-                        default: 'last key pressed',
-                        description: 'Block that returns the last key that was pressed'
-                    }),
-                    blockType: BlockType.REPORTER
-                },
-                {
-                    opcode: 'getButtonIsDown',
-                    text: formatMessage({
-                        id: 'tw.blocks.buttonIsDown',
-                        default: '[MOUSE_BUTTON] mouse button down?',
-                        description: 'Block that returns whether a specific mouse button is down'
-                    }),
-                    blockType: BlockType.BOOLEAN,
-                    arguments: {
-                        MOUSE_BUTTON: {
-                            type: ArgumentType.NUMBER,
-                            menu: 'mouseButton',
-                            defaultValue: '0'
-                        }
-                    }
-                },
-                {
-                    opcode: 'changed',
-                    blockType: BlockType.BOOLEAN,
-                    text: '[ONE] changed?',
-                    arguments: {
-                        ONE: {
-                          type: null,
-                        },
-                    },
-                }
             ],
             menus: {
                 mouseButton: {
@@ -412,26 +375,6 @@ class pmSensingExpansion {
                 }
             }
         };
-    }
-
-    getLastKeyPressed (_, util) {
-        return util.ioQuery('keyboard', 'getLastKeyPressed');
-    }
-
-    getButtonIsDown (args, util) {
-        const button = Cast.toNumber(args.MOUSE_BUTTON);
-        return util.ioQuery('mouse', 'getButtonIsDown', [button]);
-    }
-
-    changed(args, util) {
-      const id = util.thread.peekStack()
-      if (!this.lastValues[id])
-        this.lastValues[id] = Cast.toString(args.ONE);
-      if (Cast.toString(args.ONE) !== this.lastValues[id]) {
-        this.lastValues[id] = Cast.toString(args.ONE);
-        return true;
-      }
-      return false;
     }
 
     pickColor(args) {
