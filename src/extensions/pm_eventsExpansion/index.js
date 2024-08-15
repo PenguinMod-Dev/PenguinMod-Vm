@@ -17,6 +17,11 @@ const blocks = `
         </shadow>
     </value>
 </block>
+<block type="pmEventsExpansion_isBroadcastReceived">
+    <value name="BROADCAST">
+        <shadow type="event_broadcast_menu"></shadow>
+    </value>
+</block>
 %b5>
 ${blockSeparator}
 <!-- %b6 > -->
@@ -159,9 +164,22 @@ class pmEventsExpansion {
                     }
                 },
                 {
+                    opcode: 'isBroadcastReceived',
+                    text: 'is message [BROADCAST] received?',
+                    blockType: BlockType.BOOLEAN,
+                    hideFromPalette: true,
+                    arguments: {
+                        BROADCAST: {
+                            type: ArgumentType.STRING,
+                            defaultValue: "your not supposed to see this?"
+                        }
+                    }
+                },
+                {
                     opcode: 'recievedDataReporter',
                     text: 'recieved data',
                     blockType: BlockType.REPORTER,
+                    allowDropAnywhere: true,
                     disableMonitor: true
                 },
                 {
@@ -184,6 +202,7 @@ class pmEventsExpansion {
                     text: 'broadcast [BROADCAST] and wait',
                     blockType: BlockType.REPORTER,
                     disableMonitor: true,
+                    allowDropAnywhere: true,
                     arguments: {
                         BROADCAST: {
                             type: ArgumentType.STRING,
@@ -215,6 +234,7 @@ class pmEventsExpansion {
                     text: 'broadcast [BROADCAST] with data [ARGS] and wait',
                     blockType: BlockType.REPORTER,
                     disableMonitor: true,
+                    allowDropAnywhere: true,
                     arguments: {
                         BROADCAST: {
                             type: ArgumentType.STRING,
@@ -300,6 +320,9 @@ class pmEventsExpansion {
     sendWithData(args, util) {
         const broadcast = Cast.toString(args.BROADCAST);
         const data = Cast.toString(args.DATA);
+        const broadcastVar = util.runtime.getTargetForStage().lookupBroadcastMsg("", broadcast);
+        if (broadcastVar) broadcastVar.isSent = true;
+        
         const threads = util.startHats("event_whenbroadcastreceived", {
             BROADCAST_OPTION: broadcast
         });
@@ -309,6 +332,9 @@ class pmEventsExpansion {
     }
     broadcastToSprite(args, util) {
         const broadcast = Cast.toString(args.BROADCAST);
+        const broadcastVar = util.runtime.getTargetForStage().lookupBroadcastMsg("", broadcast);
+        if (broadcastVar) broadcastVar.isSent = true;
+
         const sprite = Cast.toString(args.SPRITE);
         const target = sprite === "_stage_" ?
             this.runtime.getTargetForStage()
@@ -319,6 +345,9 @@ class pmEventsExpansion {
     }
     broadcastThreadCount(args, util) {
         const broadcast = Cast.toString(args.BROADCAST);
+        const broadcastVar = util.runtime.getTargetForStage().lookupBroadcastMsg("", broadcast);
+        if (broadcastVar) broadcastVar.isSent = true;
+
         const threads = util.startHats("event_whenbroadcastreceived", {
             BROADCAST_OPTION: broadcast
         });
@@ -329,6 +358,11 @@ class pmEventsExpansion {
     }
     returnFromBroadcastFunc(args, util) {
         util.thread.__evex_returnDataa = args.VALUE;
+    }
+    isBroadcastReceived(args, util) {
+        const broadcast = Cast.toString(args.BROADCAST);
+        const broadcastVar = util.runtime.getTargetForStage().lookupBroadcastMsg("", broadcast);
+        return Cast.toBoolean(broadcastVar && broadcastVar.isSent);
     }
     broadcastFunction() {
         return; // compiler block

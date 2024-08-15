@@ -274,6 +274,10 @@ class ScriptTreeGenerator {
             return {
                 kind: 'counter.get'
             };
+        case 'control_error':
+            return {
+                kind: 'control.error'
+            };
 
         case 'data_variable':
             return {
@@ -297,16 +301,30 @@ class ScriptTreeGenerator {
                 list: this.descendVariable(block, 'LIST', LIST_TYPE),
                 item: this.descendInputOfBlock(block, 'ITEM')
             };
-        case 'data_itemnumoflist':
-            return {
-                kind: 'list.indexOf',
-                list: this.descendVariable(block, 'LIST', LIST_TYPE),
-                item: this.descendInputOfBlock(block, 'ITEM')
-            };
+            case 'data_itemnumoflist':
+                return {
+                    kind: 'list.indexOf',
+                    list: this.descendVariable(block, 'LIST', LIST_TYPE),
+                    item: this.descendInputOfBlock(block, 'ITEM')
+                };
+            case 'data_amountinlist':
+                return {
+                    kind: 'list.amountOf',
+                    list: this.descendVariable(block, 'LIST', LIST_TYPE),
+                    value: this.descendInputOfBlock(block, 'VALUE')
+                };
         case 'data_listcontents':
             return {
                 kind: 'list.contents',
                 list: this.descendVariable(block, 'LIST', LIST_TYPE)
+            };
+        case 'data_filterlistitem':
+            return {
+                kind: 'list.filteritem'
+            };
+        case 'data_filterlistindex':
+            return {
+                kind: 'list.filterindex'
             };
 
         case 'event_broadcast_menu': {
@@ -650,7 +668,12 @@ class ScriptTreeGenerator {
                 return {
                     kind: 'sensing.second'
                 };
+            case 'timestamp':
+                return {
+                    kind: 'sensing.timestamp'
+                };
             }
+
             return {
                 kind: 'constant',
                 value: 0
@@ -706,7 +729,10 @@ class ScriptTreeGenerator {
             return {
                 kind: 'sensing.username'
             };
-            
+        case 'sensing_loggedin': 
+            return {
+                kind: 'sensing.loggedin'
+            };
         case 'operator_trueBoolean':
             return {
                 kind: 'op.true'
@@ -726,17 +752,52 @@ class ScriptTreeGenerator {
                 value: block.fields.SOUND_MENU.value
             };
 
+        case 'lmsTempVars2_getRuntimeVariable':
+            return {
+                kind: 'tempVars.get',
+                var: this.descendInputOfBlock(block, 'VAR'),
+                runtime: true
+            };
+        case 'lmsTempVars2_getThreadVariable':
+            return {
+                kind: 'tempVars.get',
+                var: this.descendInputOfBlock(block, 'VAR'),
+                thread: true
+            };
         case 'tempVars_getVariable':
             return {
                 kind: 'tempVars.get',
                 var: this.descendInputOfBlock(block, 'name')
             };
-
+        
+        case 'lmsTempVars2_runtimeVariableExists':
+            return {
+                kind: 'tempVars.exists',
+                var: this.descendInputOfBlock(block, 'VAR'),
+                runtime: true
+            };
+        case 'lmsTempVars2_threadVariableExists':
+            return {
+                kind: 'tempVars.exists',
+                var: this.descendInputOfBlock(block, 'VAR'),
+                thread: true
+            };
         case 'tempVars_variableExists':
             // This menu is special compared to other menus -- it actually has an opcode function.
             return {
                 kind: 'tempVars.exists',
                 var: this.descendInputOfBlock(block, 'name')
+            };
+
+        case 'lmsTempVars2_listRuntimeVariables':
+            return {
+                kind: 'tempVars.all',
+                runtime: true
+            };
+        case 'lmsTempVars2_listThreadVariables':
+            return {
+                kind: 'tempVars.all',
+                thread: true
             };
         case 'tempVars_allVariables':
             return {
@@ -958,6 +1019,10 @@ class ScriptTreeGenerator {
             return {
                 kind: 'control.exitLoop'
             };
+        case 'control_continueLoop':
+            return {
+                kind: 'control.continueLoop'
+            };
         case 'control_all_at_once':
             // In Scratch 3, this block behaves like "if 1 = 1"
             // WE ARE IN PM NOW IT BEHAVES PROPERLY LESS GO
@@ -1014,6 +1079,17 @@ class ScriptTreeGenerator {
                 condition: this.descendInputOfBlock(block, 'CONDITION'),
                 whenTrue: this.descendSubstack(block, 'SUBSTACK'),
                 whenFalse: this.descendSubstack(block, 'SUBSTACK2')
+            };
+        case 'control_try_catch':
+            return {
+                kind: 'control.trycatch',
+                try: this.descendSubstack(block, 'SUBSTACK'),
+                catch: this.descendSubstack(block, 'SUBSTACK2')
+            };
+        case 'control_throw_error':
+            return {
+                kind: 'control.throwError',
+                error: this.descendInputOfBlock(block, 'ERROR'),
             };
         case 'control_incr_counter':
             return {
@@ -1184,6 +1260,13 @@ class ScriptTreeGenerator {
                 index: index
             };
         }
+        case 'data_shiftlist': {
+            return {
+                kind: 'list.shift',
+                list: this.descendVariable(block, 'LIST', LIST_TYPE),
+                index: this.descendInputOfBlock(block, 'INDEX')
+            };
+        }
         case 'data_hidelist':
             return {
                 kind: 'list.hide',
@@ -1224,6 +1307,12 @@ class ScriptTreeGenerator {
                 kind: 'var.show',
                 variable: this.descendVariable(block, 'VARIABLE', SCALAR_TYPE)
             };
+        case 'data_filterlist':
+            return {
+                kind: 'list.filter',
+                list: this.descendVariable(block, 'LIST', LIST_TYPE),
+                bool: this.descendInputOfBlock(block, 'BOOL')
+            };
 
         case 'event_broadcast':
             return {
@@ -1262,6 +1351,17 @@ class ScriptTreeGenerator {
             return {
                 kind: 'looks.backwardLayers',
                 layers: this.descendInputOfBlock(block, 'NUM')
+            };
+        case 'looks_goTargetLayer':
+            if (block.fields.FORWARD_BACKWARD.value === 'infront') {
+                return {
+                    kind: 'looks.targetFront',
+                    layers: this.descendInputOfBlock(block, 'VISIBLE_OPTION')
+                };
+            }
+            return {
+                kind: 'looks.targetBack',
+                layers: this.descendInputOfBlock(block, 'VISIBLE_OPTION')
             };
         case 'looks_gotofrontback':
             if (block.fields.FRONT_BACK.value === 'front') {
@@ -1740,12 +1840,60 @@ class ScriptTreeGenerator {
             control.if.return.else.return
             */
 
+        case 'lmsTempVars2_setRuntimeVariable':
+            return {
+                kind: 'tempVars.set',
+                var: this.descendInputOfBlock(block, 'VAR'),
+                val: this.descendInputOfBlock(block, 'STRING'),
+                runtime: true
+            };
+        case 'lmsTempVars2_setThreadVariable':
+            return {
+                kind: 'tempVars.set',
+                var: this.descendInputOfBlock(block, 'VAR'),
+                val: this.descendInputOfBlock(block, 'STRING'),
+                thread: true
+            };
         case 'tempVars_setVariable':
             return {
                 kind: 'tempVars.set',
                 var: this.descendInputOfBlock(block, 'name'),
                 val: this.descendInputOfBlock(block, 'value')
             };
+        
+        case 'lmsTempVars2_changeRuntimeVariable':
+            const name = this.descendInputOfBlock(block, 'VAR');
+            return {
+                kind: 'tempVars.set',
+                var: name,
+                val: {
+                    kind: 'op.add',
+                    left: {
+                        kind: 'tempVars.get',
+                        var: name,
+                        runtime: true
+                    },
+                    right: this.descendInputOfBlock(block, 'NUM')
+                },
+                runtime: true
+            };
+        case 'lmsTempVars2_changeThreadVariable': {
+            const name = this.descendInputOfBlock(block, 'VAR');
+            return {
+                kind: 'tempVars.set',
+                var: name,
+                val: {
+                    kind: 'op.add',
+                    left: {
+                        kind: 'tempVars.get',
+                        var: name,
+                        thread: true
+                    },
+                    right: this.descendInputOfBlock(block, 'NUM')
+                },
+                thread: true
+            };
+        }
         case 'tempVars_changeVariable': {
             const name = this.descendInputOfBlock(block, 'name');
             return {
@@ -1761,16 +1909,39 @@ class ScriptTreeGenerator {
                 }
             };
         }
+
+        case 'lmsTempVars2_deleteRuntimeVariable':
+            return {
+                kind: 'tempVars.delete',
+                var: this.descendInputOfBlock(block, 'VAR'),
+                runtime: true
+            };
         case 'tempVars_deleteVariable':
             return {
                 kind: 'tempVars.delete',
                 var: this.descendInputOfBlock(block, 'name')
             };
+
+        case 'lmsTempVars2_deleteAllRuntimeVariable':
+            return {
+                kind: 'tempVars.deleteAll',
+                runtime: true
+            };
         case 'tempVars_deleteAllVariables':
             return {
                 kind: 'tempVars.deleteAll'
             };
+
+        case 'lmsTempVars2_forEachThreadVariable':
+            return {
+                kind: 'tempVars.forEach',
+                var: this.descendInputOfBlock(block, 'VAR'),
+                loops: this.descendInputOfBlock(block, 'NUM'),
+                do: this.descendSubstack(block, 'SUBSTACK'),
+                thread: true
+            };
         case 'tempVars_forEachTempVar':
+            this.analyzeLoop();
             return {
                 kind: 'tempVars.forEach',
                 var: this.descendInputOfBlock(block, 'NAME'),
@@ -1926,7 +2097,7 @@ class ScriptTreeGenerator {
         }
 
         // Create it locally...
-        const newVariable = new Variable(id, name, type, false);
+        const newVariable = this.runtime.newVariableInstance(type, id, name, false);
         target.variables[id] = newVariable;
 
         if (target.sprite) {
@@ -1935,7 +2106,7 @@ class ScriptTreeGenerator {
             // sprite.clones has all instances of this sprite including the original and all clones
             for (const clone of target.sprite.clones) {
                 if (!clone.variables.hasOwnProperty(id)) {
-                    clone.variables[id] = new Variable(id, name, type, false);
+                    clone.variables[id] = this.runtime.newVariableInstance(type, id, name, false);
                 }
             }
         }
@@ -1977,7 +2148,6 @@ class ScriptTreeGenerator {
             const type = block.fields[name].variableType;
             if (typeof type !== 'undefined') {
                 const data = this.descendVariable(block, name, type);
-                data.type = type;
                 fields[name] = data;
                 continue;
             }

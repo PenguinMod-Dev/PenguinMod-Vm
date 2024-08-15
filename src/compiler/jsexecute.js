@@ -103,6 +103,32 @@ runtimeFunctions.waitThreads = `const waitThreads = function*(threads) {
  * @param {Promise} promise The promise to wait for.
  * @returns {*} the value that the promise resolves to, otherwise undefined if the promise rejects
  */
+runtimeFunctions.waitPromise = `
+const waitPromise = function*(promise) {
+    const thread = globalState.thread;
+    let returnValue;
+    let errorReturn;
+
+    promise
+        .then(value => {
+            returnValue = value;
+            thread.status = 0; // STATUS_RUNNING
+        })
+        .catch(error => {
+            errorReturn = error;
+            // i realized, i dont actually know what would happen if we never do this but throw and exit anyways
+            thread.status = 0; // STATUS_RUNNING
+        });
+
+    // enter STATUS_PROMISE_WAIT and yield
+    // this will stop script execution until the promise handlers reset the thread status
+    thread.status = 1; // STATUS_PROMISE_WAIT
+    yield;
+
+    // throw the promise error if ee got one
+    if (errorReturn) throw errorReturn
+    return returnValue;
+}`;
 
 /**
  * isPromise: Determine if a value is Promise-like
@@ -120,34 +146,14 @@ runtimeFunctions.waitThreads = `const waitThreads = function*(threads) {
  * @returns {*} the value returned by the block, if any.
  */
 runtimeFunctions.executeInCompatibilityLayer = `let hasResumedFromPromise = false;
-const waitPromise = function*(promise) {
-    const thread = globalState.thread;
-    let returnValue;
 
-    promise
-        .then(value => {
-            returnValue = value;
-            thread.status = 0; // STATUS_RUNNING
-        })
-        .catch(error => {
-            thread.status = 0; // STATUS_RUNNING
-            globalState.log.warn('Promise rejected in compiled script:', error);
-        });
-
-    // enter STATUS_PROMISE_WAIT and yield
-    // this will stop script execution until the promise handlers reset the thread status
-    thread.status = 1; // STATUS_PROMISE_WAIT
-    yield;
-
-    return returnValue;
-};
 const isPromise = value => (
     // see engine/execute.js
     value !== null &&
     typeof value === 'object' &&
     typeof value.then === 'function'
 );
-const executeInCompatibilityLayer = function*(inputs, blockFunction, isWarp, useFlags, blockId, branchInfo) {
+const executeInCompatibilityLayer = function*(inputs, blockFunction, isWarp, useFlags, blockId, branchInfo, visualReport) {
     const thread = globalState.thread;
     const blockUtility = globalState.blockUtility;
     const stackFrame = branchInfo ? branchInfo.stackFrame : {};
@@ -169,7 +175,7 @@ const executeInCompatibilityLayer = function*(inputs, blockFunction, isWarp, use
 
     const executeBlock = () => {
         blockUtility.init(thread, blockId, stackFrame);
-        return blockFunction(inputs, blockUtility);
+        return blockFunction(inputs, blockUtility, visualReport);
     };
 
     let returnValue = executeBlock();
@@ -179,7 +185,7 @@ const executeInCompatibilityLayer = function*(inputs, blockFunction, isWarp, use
         return returnValue;
     }
 
-    if (thread.status === 1 /* STATUS_PROMISE_WAIT */) {
+    if (thread.status === 1 /* STATUS_PROMISE_WAIT */ || thread.status === 4 /* STATUS_DONE */) {
         // Something external is forcing us to stop
         yield;
         // Make up a return value because whatever is forcing us to stop can't specify one
@@ -206,14 +212,11 @@ const executeInCompatibilityLayer = function*(inputs, blockFunction, isWarp, use
             return returnValue;
         }
 
-        if (thread.status === 1 /* STATUS_PROMISE_WAIT */) {
+        if (thread.status === 1 /* STATUS_PROMISE_WAIT */ || thread.status === 4 /* STATUS_DONE */) {
             yield;
             return finish('');
         }
     }
-
-    // todo: do we have to do anything extra if status is STATUS_DONE?
-
     return finish(returnValue);
 }`;
 
@@ -592,6 +595,22 @@ runtimeFunctions.tan = `const tan = (angle) => {
     return Math.round(Math.tan((Math.PI * angle) / 180) * 1e10) / 1e10;
 }`;
 
+runtimeFunctions.resolveImageURL = `const resolveImageURL = imgURL => 
+    typeof imgURL === 'object' && imgURL.type === 'canvas'
+        ? Promise.resolve(imgURL.canvas)
+        : new Promise(resolve => {
+            const image = new Image();
+            image.crossOrigin = "anonymous";
+            image.onload = resolve(image);
+            image.onerror = resolve; // ignore loading errors lol!
+            image.src = ''+imgURL;
+        })`;
+
+runtimeFunctions.parseJSONSafe = `const parseJSONSafe = json => {
+    try return JSON.parse(json)
+    catch return {}
+}`;
+
 /**
  * Step a compiled thread.
  * @param {Thread} thread The thread to step.
@@ -615,6 +634,9 @@ const insertRuntime = source => {
         if (source.includes(functionName)) {
             result += `${runtimeFunctions[functionName]};`;
         }
+    }
+    if (result.includes('executeInCompatibilityLayer') && !result.includes('const waitPromise')) {
+        result = result.replace('let hasResumedFromPromise = false;', `let hasResumedFromPromise = false;\n${runtimeFunctions.waitPromise}`);
     }
     result += `return ${source}`;
     return result;

@@ -290,6 +290,9 @@ const serializeFields = function (fields) {
         if (fields[fieldName].hasOwnProperty('id')) {
             obj[fieldName].push(fields[fieldName].id);
         }
+        if (fields[fieldName].hasOwnProperty('variableType')) {
+            obj[fieldName].push(fields[fieldName].variableType);
+        }
     }
     return obj;
 };
@@ -601,10 +604,14 @@ const isVariableValueSafeForJSON = value => (
     typeof value === 'string' ||
     typeof value === 'boolean'
 );
-const makeSafeForJSON = value => {
+const makeSafeForJSON = (runtime, value) => {
     if (Array.isArray(value)) {
         let copy = null;
         for (let i = 0; i < value.length; i++) {
+            if (value[i].customId) {
+                const {serialize} = runtime.serializers[value[i].customId];
+                value[i] = serialize(value[i]);
+            }
             if (!isVariableValueSafeForJSON(value[i])) {
                 if (!copy) {
                     // Only copy the list when needed
@@ -617,6 +624,14 @@ const makeSafeForJSON = value => {
             return copy;
         }
         return value;
+    }
+    if (value.customId) {
+        const {serialize} = runtime.serializers[value.customId];
+        return {
+            customType: true,
+            typeId: value.customId,
+            serialized: serialize(value)
+        };
     }
     if (isVariableValueSafeForJSON(value)) {
         return value;
@@ -631,13 +646,13 @@ const makeSafeForJSON = value => {
  * separated by type to compress the representation of each given variable and
  * reduce duplicate information.
  */
-const serializeVariables = function (variables) {
-    const obj = Object.create(null);
+const serializeVariables = function (obj, runtime, variables) {
     // separate out variables into types at the top level so we don't have
     // keep track of a type for each
     obj.variables = Object.create(null);
     obj.lists = Object.create(null);
     obj.broadcasts = Object.create(null);
+    obj.customVars = [];
     for (const varId in variables) {
         const v = variables[varId];
         if (v.type === Variable.BROADCAST_MESSAGE_TYPE) {
@@ -645,16 +660,19 @@ const serializeVariables = function (variables) {
             continue;
         }
         if (v.type === Variable.LIST_TYPE) {
-            obj.lists[varId] = [v.name, makeSafeForJSON(v.value)];
+            obj.lists[varId] = [v.name, makeSafeForJSON(runtime, v.value)];
             continue;
         }
-
-        // otherwise should be a scalar type
-        obj.variables[varId] = [v.name, makeSafeForJSON(v.value)];
-        // only scalar vars have the potential to be cloud vars
-        if (v.isCloud) obj.variables[varId].push(true);
+        if (v.type === Variable.SCALAR_TYPE) {
+            obj.variables[varId] = [v.name, makeSafeForJSON(runtime, v.value)];
+            if (v.isCloud) obj.variables[varId].push(true);
+            continue;
+        }
+        // else custom variable type
+        const varInfo = v.serialize();
+        varInfo.unshift(v.type);
+        obj.customVars.push(varInfo);
     }
-    return obj;
 };
 
 const serializeComments = function (comments) {
@@ -684,14 +702,11 @@ const serializeComments = function (comments) {
  * @param {Set} extensions A set of extensions to add extension IDs to
  * @return {object} A serialized representation of the given target.
  */
-const serializeTarget = function (target) {
+const serializeTarget = function (runtime, target) {
     const obj = Object.create(null);
     obj.isStage = target.isStage;
     obj.name = obj.isStage ? 'Stage' : target.name;
-    const vars = serializeVariables(target.variables);
-    obj.variables = vars.variables;
-    obj.lists = vars.lists;
-    obj.broadcasts = vars.broadcasts;
+    serializeVariables(obj, runtime, target.variables);
     obj.blocks = serializeBlocks(target.blocks);
     obj.comments = serializeComments(target.comments);
 
@@ -704,6 +719,7 @@ const serializeTarget = function (target) {
     obj.currentCostume = target.currentCostume;
     obj.costumes = target.costumes.map(serializeCostume);
     obj.sounds = target.sounds.map(serializeSound);
+    obj.id = target.id;
     if (target.hasOwnProperty('volume')) obj.volume = target.volume;
     if (target.hasOwnProperty('layerOrder')) obj.layerOrder = target.layerOrder;
     if (obj.isStage) { // Only the stage should have these properties
@@ -791,7 +807,7 @@ const serialize = function (runtime, targetId, {allowOptimization = true} = {}) 
         });
     }
 
-    const serializedTargets = flattenedOriginalTargets.map(t => serializeTarget(t, extensions));
+    const serializedTargets = flattenedOriginalTargets.map(t => serializeTarget(runtime, t, extensions));
     const fonts = runtime.fontManager.serializeJSON();
 
     if (targetId) {
@@ -799,8 +815,19 @@ const serialize = function (runtime, targetId, {allowOptimization = true} = {}) 
         const extensionURLs = getExtensionURLsToSave(extensions, runtime);
         target.extensions = extensions;
         if (extensionURLs) {
-            obj.extensionURLs = extensionURLs;
+            target.extensionURLs = extensionURLs;
         }
+
+        // add extension datas
+        target.extensionData = {};
+        for (const extension of extensions) {
+            if (`ext_${extension}` in runtime) {
+                if (typeof runtime[`ext_${extension}`].serialize === 'function') {
+                    target.extensionData[extension] = runtime[`ext_${extension}`].serialize();
+                }
+            }
+        }
+
         if (fonts) {
             target.customFonts = fonts;
         }
@@ -845,6 +872,13 @@ const serialize = function (runtime, targetId, {allowOptimization = true} = {}) 
     meta.agent = '';
     // TW: Never include full user agent to slightly improve user privacy
     // if (typeof navigator !== 'undefined') meta.agent = navigator.userAgent;
+    
+    // Attach platform information so TurboWarp and other mods can detect where the file comes from
+    const platform = Object.create(null);
+    platform.name = "PenguinMod";
+    platform.url = "https://penguinmod.com/";
+    platform.version = "stable";
+    meta.platform = platform;
 
     // Assemble payload and return
     obj.meta = meta;
@@ -1081,6 +1115,10 @@ const deserializeFields = function (fields) {
         if (fieldDescArr.length > 1) {
             obj[fieldName].id = fieldDescArr[1];
         }
+        if (fieldDescArr.length > 2) {
+            obj[fieldName].variableType = fieldDescArr[2];
+        }
+        // "old" compat code :bleh:
         if (fieldName === 'BROADCAST_OPTION') {
             obj[fieldName].variableType = Variable.BROADCAST_MESSAGE_TYPE;
         } else if (fieldName === 'VARIABLE') {
@@ -1325,6 +1363,13 @@ const parseScratchObject = function (object, runtime, extensions, zip, assets) {
             target.variables[newBroadcast.id] = newBroadcast;
         }
     }
+    if (object.hasOwnProperty('customVars')) {
+        for (const info of object.customVars) {
+            // im lay z so customVars is just a list of arg lists to be passed into the variable creator
+            const newVar = runtime.newVariableInstance(...info);
+            target.variables[newVar.id] = newVar;
+        }
+    }
     if (object.hasOwnProperty('comments')) {
         for (const commentId in object.comments) {
             const comment = object.comments[commentId];
@@ -1375,6 +1420,10 @@ const parseScratchObject = function (object, runtime, extensions, zip, assets) {
     }
     if (object.hasOwnProperty('draggable')) {
         target.draggable = object.draggable;
+    }
+    const existingTargetIds = runtime.targets.map(target => target.id);
+    if (object.hasOwnProperty('id') && !existingTargetIds.includes(object.id)) {
+        target.id = object.id;
     }
     Promise.all(costumePromises).then(costumes => {
         sprite.costumes = costumes;

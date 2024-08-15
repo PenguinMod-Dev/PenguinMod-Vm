@@ -207,6 +207,13 @@ class Thread {
          */
         this.procedures = null;
         this.executableHat = false;
+
+        /**
+         * Thread vars: for allowing a compiled version of the 
+         * LilyMakesThings Thread Variables extension
+         * @type {Object}
+         */
+        this.variables = Object.create(null);
     }
 
     /**
@@ -517,7 +524,7 @@ class Thread {
         for (const procedureCode of Object.keys(result.procedures)) {
             this.procedures[procedureCode] = result.procedures[procedureCode](this);
         }
-
+        
         this.generator = result.startingFunction(this)();
 
         this.executableHat = result.executableHat;
@@ -530,5 +537,8 @@ class Thread {
         this.isCompiled = true;
     }
 }
+
+// For extensions
+Thread._StackFrame = _StackFrame;
 
 module.exports = Thread;

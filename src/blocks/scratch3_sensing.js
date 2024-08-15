@@ -37,6 +37,12 @@ class Scratch3SensingBlocks {
         this._cachedLoudnessTimestamp = 0;
 
         /**
+         * The list of loudness values to determine the average.
+         * @type {!Array}
+         */
+        this._loudnessList = [];
+
+        /**
          * The list of queued questions and respective `resolve` callbacks.
          * @type {!Array}
          */
@@ -75,6 +81,7 @@ class Scratch3SensingBlocks {
             sensing_askandwait: this.askAndWait,
             sensing_answer: this.getAnswer,
             sensing_username: this.getUsername,
+            sensing_loggedin: this.getLoggedIn,
             sensing_userid: () => {}, // legacy no-op block
             sensing_regextest: this.regextest,
             sensing_thing_is_number: this.thing_is_number,
@@ -105,23 +112,23 @@ class Scratch3SensingBlocks {
     getOS () {
         if (!('userAgent' in navigator)) return 'Unknown';
         const agent = navigator.userAgent;
-        if (agent.includes('Mac OS')) {
-            return 'MacOS';
-        }
-        if (agent.includes('CrOS')) {
-            return 'ChromeOS';
-        }
-        if (agent.includes('Linux')) {
-            return 'Linux';
-        }
         if (agent.includes('Windows')) {
             return 'Windows';
+        }
+        if (agent.includes('Android')) {
+            return 'Android';
         }
         if (agent.includes('iPad') || agent.includes('iPod') || agent.includes('iPhone')) {
             return 'iOS';
         }
-        if (agent.includes('Android')) {
-            return 'Android';
+        if (agent.includes('Linux')) {
+            return 'Linux';
+        }
+        if (agent.includes('CrOS')) {
+            return 'ChromeOS';
+        }
+        if (agent.includes('Mac OS')) {
+            return 'MacOS';
         }
         return 'Unknown';
     }
@@ -530,13 +537,21 @@ class Scratch3SensingBlocks {
 
         this._cachedLoudnessTimestamp = this._timer.time();
         this._cachedLoudness = this.runtime.audioEngine.getLoudness();
+        this.pushLoudness(this._cachedLoudness);
         return this._cachedLoudness;
     }
 
     isLoud () {
-        return this.getLoudness() > 10;
+      this.pushLoudness();
+      let sum = this._loudnessList.reduce((accumulator, currentValue) => accumulator + currentValue, 0);
+      sum /= this._loudnessList.length;
+      return this.getLoudness() > sum + 15;
     }
-
+    pushLoudness (value) {
+      if (this._loudnessList.length >= 30) this._loudnessList.shift(); // remove first item
+      this._loudnessList.push(value ?? this.getLoudness());
+    }
+    
     getAttributeOf (args) {
         let attrTarget;
 
@@ -571,6 +586,7 @@ class Scratch3SensingBlocks {
             case 'costume #': return attrTarget.currentCostume + 1;
             case 'costume name':
                 return attrTarget.getCostumes()[attrTarget.currentCostume].name;
+            case 'layer': return attrTarget.getLayerOrder();
             case 'size': return attrTarget.size;
             case 'volume': return attrTarget.volume;
             }
@@ -589,6 +605,10 @@ class Scratch3SensingBlocks {
 
     getUsername (args, util) {
         return util.ioQuery('userData', 'getUsername');
+    }
+
+    getLoggedIn(args, util) {
+        return util.ioQuery('userData', 'getLoggedIn');
     }
 }
 

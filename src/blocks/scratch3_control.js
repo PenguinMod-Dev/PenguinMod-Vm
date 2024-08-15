@@ -15,6 +15,12 @@ class Scratch3ControlBlocks {
          */
         this._counter = 0; // used by compiler
 
+        /**
+         * The "error" block value.
+         * @type {string}
+         */
+        this._error = ''; // used by compiler
+
         this.runtime.on('RUNTIME_DISPOSED', this.clearCounter.bind(this));
     }
 
@@ -61,8 +67,26 @@ class Scratch3ControlBlocks {
         };
     }
 
-    backToGreenFlag () {
-        this.runtime.greenFlag();
+    backToGreenFlag(_, util) {
+        const thisThread = util.thread.topBlock;
+        this.runtime.emit("PROJECT_START_BEFORE_RESET");
+        this.runtime.threads
+            .filter(thread => thread.topBlock !== thisThread)
+            .forEach(thread => thread.stopThisScript());
+        // green flag behaviour
+        this.runtime.emit("PROJECT_START");
+        this.runtime.updateCurrentMSecs();
+        this.runtime.ioDevices.clock.resetProjectTimer();
+        this.runtime.targets.forEach(target => target.clearEdgeActivatedValues());
+        for (let i = this.runtime.targets.length - 1; i >= 0; i--) {
+            const thisTarget = this.runtime.targets[i];
+            thisTarget.onGreenFlag();
+            if (!thisTarget.isOriginal) {
+                this.runtime.disposeTarget(thisTarget);
+                this.runtime.stopForTarget(thisTarget);
+            }
+        }
+        this.runtime.startHats("event_whenflagclicked");
     }
 
     if_return_else_return (args) {

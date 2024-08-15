@@ -492,6 +492,7 @@ class Blocks {
                     }
                 }
                 stage.createVariable(e.varId, e.varName, e.varType, e.isCloud);
+                this.runtime.emit('variableCreate', e.varType, e.varId, e.varName, e.isCloud);
                 this.emitProjectChanged();
             }
             break;
@@ -512,12 +513,14 @@ class Blocks {
                     currTarget.blocks.updateBlocksAfterVarRename(e.varId, e.newName);
                 }
             }
+            this.runtime.emit('variableChange', e.varType, e.varId, e.varName);
             this.emitProjectChanged();
             break;
         case 'var_delete': {
             this.resetCache(); // tw: more aggressive cache resetting
             const target = (editingTarget && editingTarget.variables.hasOwnProperty(e.varId)) ?
                 editingTarget : stage;
+            this.runtime.emit('variableDelete', e.varType, e.varId);
             target.deleteVariable(e.varId);
             this.emitProjectChanged();
             break;
@@ -684,8 +687,8 @@ class Blocks {
 
             // Update block value
             if (!block.fields[args.name]) return;
-            if (args.name === 'VARIABLE' || args.name === 'LIST' ||
-                args.name === 'BROADCAST_OPTION') {
+            const field = block.fields[args.name];
+            if (typeof field.variableType === 'string') {
                 // Get variable name using the id in args.value.
                 const variable = this.runtime.getEditingTarget().lookupVariableById(args.value);
                 if (variable) {
@@ -1273,6 +1276,7 @@ class Blocks {
      * @return {string} XML string representing a mutation.
      */
     mutationToXML (mutation) {
+        if (typeof mutation === 'string') return xmlEscape(mutation)
         let mutationString = `<${mutation.tagName}`;
         for (const prop in mutation) {
             if (prop === 'children' || prop === 'tagName') continue;

@@ -17,13 +17,24 @@ class AudioExtension {
          */
         this.runtime = runtime;
         this.helper = Helper;
-        Helper.SetRuntime(runtime);
+        this.helper.runtime = this.runtime;
+
         this.runtime.on('PROJECT_STOP_ALL', () => {
-            Helper.KillAllProcesses();
+            for (const audioGroupName in Helper.audioGroups) {
+                const audioGroup = Helper.GetAudioGroup(audioGroupName);
+                for (const sourceName in audioGroup.sources) {
+                    audioGroup.sources[sourceName].stop();
+                }
+            }
         });
+
+        this.runtime.registerExtensionAudioContext("jgExtendedAudio", this.helper.audioContext, this.helper.audioGlobalVolumeNode);
     }
 
     deserialize(data) {
+        for (const audioGroup in Helper.audioGroups) {
+            Helper.DeleteAudioGroup(audioGroup);
+        }
         Helper.audioGroups = {};
         for (const audioGroup of data) {
             Helper.AddAudioGroup(audioGroup.id, audioGroup);
@@ -118,6 +129,14 @@ class AudioExtension {
                     },
                 },
                 {
+                    opcode: 'audioSourceReverse', text: 'reverse audio source used in [NAME] in [AUDIOGROUP]', blockType: BlockType.COMMAND,
+                    arguments: {
+                        NAME: { type: ArgumentType.STRING, defaultValue: "AudioSource1" },
+                        COPY: { type: ArgumentType.STRING, defaultValue: "AudioSource2" },
+                        AUDIOGROUP: { type: ArgumentType.STRING, menu: 'audioGroup', defaultValue: "" },
+                    },
+                },
+                {
                     opcode: 'audioSourceDeleteAll', text: '[DELETEOPTION] all audio sources in [AUDIOGROUP]', blockType: BlockType.COMMAND,
                     arguments: {
                         DELETEOPTION: { type: ArgumentType.STRING, menu: 'deleteOptions', defaultValue: "" },
@@ -138,7 +157,7 @@ class AudioExtension {
                     arguments: {
                         NAME: { type: ArgumentType.STRING, defaultValue: "AudioSource1" },
                         AUDIOGROUP: { type: ArgumentType.STRING, menu: 'audioGroup', defaultValue: "" },
-                        URL: { type: ArgumentType.STRING, defaultValue: "https://pm-bapi.vercel.app/buauauau.mp3" },
+                        URL: { type: ArgumentType.STRING, defaultValue: "https://extensions.turbowarp.org/meow.mp3" },
                     },
                 },
                 {
@@ -159,9 +178,10 @@ class AudioExtension {
                     },
                 },
                 {
-                    opcode: 'audioSourceSetTime', text: 'set audio source [NAME] start position in [AUDIOGROUP] to [TIME] seconds', blockType: BlockType.COMMAND,
+                    opcode: 'audioSourceSetTime2', text: 'set audio source [NAME] [TIMEPOS] position in [AUDIOGROUP] to [TIME] seconds', blockType: BlockType.COMMAND,
                     arguments: {
                         NAME: { type: ArgumentType.STRING, defaultValue: "AudioSource1" },
+                        TIMEPOS: { type: ArgumentType.STRING, menu: 'timePosition' },
                         AUDIOGROUP: { type: ArgumentType.STRING, menu: 'audioGroup', defaultValue: "" },
                         TIME: { type: ArgumentType.NUMBER, defaultValue: 0.3 },
                     },
@@ -192,6 +212,16 @@ class AudioExtension {
                         AUDIOGROUP: { type: ArgumentType.STRING, menu: 'audioGroup', defaultValue: "" },
                     },
                 },
+                // deleted blocks
+                {
+                    opcode: 'audioSourceSetTime', text: 'set audio source [NAME] start position in [AUDIOGROUP] to [TIME] seconds', blockType: BlockType.COMMAND,
+                    arguments: {
+                        NAME: { type: ArgumentType.STRING, defaultValue: "AudioSource1" },
+                        AUDIOGROUP: { type: ArgumentType.STRING, menu: 'audioGroup', defaultValue: "" },
+                        TIME: { type: ArgumentType.NUMBER, defaultValue: 0.3 },
+                    },
+                    hideFromPalette: true,
+                },
             ],
             menus: {
                 audioGroup: 'fetchAudioGroupMenu',
@@ -202,7 +232,7 @@ class AudioExtension {
                     items: [
                         { text: "volume", value: "volume" },
                         { text: "speed", value: "speed" },
-                        { text: "pitch", value: "pitch" },
+                        { text: "detune", value: "pitch" },
                         { text: "pan", value: "pan" },
                     ]
                 },
@@ -210,8 +240,8 @@ class AudioExtension {
                     acceptReporters: true,
                     items: [
                         { text: "play", value: "play" },
+                        { text: "pause", value: "pause" },
                         { text: "stop", value: "stop" },
-                        // { text: "pause (buggy)", value: "pause" },
                     ]
                 },
                 loop: {
@@ -221,10 +251,22 @@ class AudioExtension {
                         { text: "not loop", value: "not loop" },
                     ]
                 },
+                timePosition: {
+                    acceptReporters: true,
+                    items: [
+                        { text: "time", value: "time" },
+                        { text: "start", value: "start" },
+                        { text: "end", value: "end" },
+                        { text: "start loop", value: "start loop" },
+                        { text: "end loop", value: "end loop" },
+                    ]
+                },
                 deleteOptions: {
                     acceptReporters: true,
                     items: [
                         { text: "delete", value: "delete" },
+                        { text: "play", value: "play" },
+                        { text: "pause", value: "pause" },
                         { text: "stop", value: "stop" },
                     ]
                 },
@@ -241,7 +283,7 @@ class AudioExtension {
                     items: [
                         { text: "volume", value: "volume" },
                         { text: "speed", value: "speed" },
-                        { text: "pitch", value: "pitch" },
+                        { text: "detune", value: "pitch" },
                         { text: "pan", value: "pan" },
                     ]
                 },
@@ -250,7 +292,7 @@ class AudioExtension {
                     acceptReporters: true,
                     items: [
                         { text: "playing", value: "playing" },
-                        // { text: "paused", value: "paused" },
+                        { text: "paused", value: "paused" },
                         { text: "looping", value: "looping" },
                     ]
                 },
@@ -259,11 +301,19 @@ class AudioExtension {
                     items: [
                         { text: "volume", value: "volume" },
                         { text: "speed", value: "speed" },
-                        { text: "pitch", value: "pitch" },
+                        { text: "detune", value: "pitch" },
                         { text: "pan", value: "pan" },
+                        { text: "time position", value: "time position" },
+                        { text: "output volume", value: "output volume" },
                         { text: "start position", value: "start position" },
+                        { text: "end position", value: "end position" },
+                        { text: "start loop position", value: "start loop position" },
+                        { text: "end loop position", value: "end loop position" },
                         { text: "sound length", value: "sound length" },
                         { text: "origin sound", value: "origin sound" },
+
+                        // see https://stackoverflow.com/a/54567527 as to why this is not a menu option
+                        // { text: "dominant frequency", value: "dominant frequency" },
                     ]
                 }
             }
@@ -319,16 +369,17 @@ class AudioExtension {
         const audioGroup = Helper.GetAudioGroup(args.AUDIOGROUP);
         switch (args.VSPP) {
             case "volume":
-                audioGroup.globalVolume = Helper.Clamp(Helper.SafeNumberConvert(args.VALUE) / 100, 0, 1);
+                audioGroup.globalVolume = Helper.Clamp(Cast.toNumber(args.VALUE) / 100, 0, 1);
                 break;
             case "speed":
-                audioGroup.globalSpeed = Helper.Clamp(Helper.SafeNumberConvert(args.VALUE) / 100, 0, Infinity);
+                audioGroup.globalSpeed = Helper.Clamp(Cast.toNumber(args.VALUE) / 100, 0, Infinity);
                 break;
+            case "detune":
             case "pitch":
-                audioGroup.globalPitch = Helper.SafeNumberConvert(args.VALUE);
+                audioGroup.globalPitch = Cast.toNumber(args.VALUE);
                 break;
             case "pan":
-                audioGroup.globalPan = Helper.Clamp(Helper.SafeNumberConvert(args.VALUE), -100, 100) / 100;
+                audioGroup.globalPan = Helper.Clamp(Cast.toNumber(args.VALUE), -100, 100) / 100;
                 break;
         }
         Helper.UpdateAudioGroupSources(audioGroup);
@@ -338,6 +389,7 @@ class AudioExtension {
         const audioGroup = Helper.GetAudioGroup(args.AUDIOGROUP);
         switch (args.CREATEOPTION) {
             case "create":
+                Helper.RemoveAudioSource(audioGroup, args.NAME);
                 Helper.AppendAudioSource(audioGroup, args.NAME);
                 break;
             case "delete":
@@ -355,18 +407,33 @@ class AudioExtension {
         Helper.RemoveAudioSource(audioGroup, newName);
         audioGroup.sources[newName] = audioSource.clone();
     }
+    audioSourceReverse(args) {
+        const audioGroup = Helper.GetAudioGroup(args.AUDIOGROUP);
+        const target = Cast.toString(args.NAME);
+        if (!audioGroup) return;
+        const audioSource = Helper.GrabAudioSource(audioGroup, target);
+        if (!audioSource) return;
+        audioSource.reverse();
+    }
     audioSourceDeleteAll(args) {
         const audioGroup = Helper.GetAudioGroup(args.AUDIOGROUP);
-        Object.getOwnPropertyNames(audioGroup.sources).forEach(sourceName => {
+
+        for (const sourceName in audioGroup.sources) {
             switch (args.DELETEOPTION) {
                 case "delete":
                     Helper.RemoveAudioSource(audioGroup, sourceName);
+                    break;
+                case "play":
+                    audioGroup.sources[sourceName].play();
+                    break;
+                case "pause":
+                    audioGroup.sources[sourceName].pause();
                     break;
                 case "stop":
                     audioGroup.sources[sourceName].stop();
                     break;
             }
-        });
+        }
     }
 
     audioSourceSetScratch(args, util) {
@@ -380,7 +447,7 @@ class AudioExtension {
             let canUse = true;
             try {
                 // eslint-disable-next-line no-unused-vars
-                let abc = util.target.sprite.soundBank.getSoundPlayer(sound.soundId).buffer;
+                util.target.sprite.soundBank.getSoundPlayer(sound.soundId).buffer;
             } catch {
                 canUse = false;
             }
@@ -413,7 +480,7 @@ class AudioExtension {
                     let canUse = true;
                     try {
                         // eslint-disable-next-line no-unused-vars
-                        let abc = util.target.sprite.soundBank.getSoundPlayer(sound.soundId).buffer;
+                        util.target.sprite.soundBank.getSoundPlayer(sound.soundId).buffer;
                     } catch {
                         canUse = false;
                     }
@@ -451,7 +518,31 @@ class AudioExtension {
         if (!audioGroup) return;
         const audioSource = Helper.GrabAudioSource(audioGroup, args.NAME);
         if (!audioSource) return;
-        audioSource.timePosition = Helper.SafeNumberConvert(args.TIME);
+        audioSource.startPosition = Cast.toNumber(args.TIME);
+    }
+    audioSourceSetTime2(args) {
+        const audioGroup = Helper.GetAudioGroup(args.AUDIOGROUP);
+        if (!audioGroup) return;
+        const audioSource = Helper.GrabAudioSource(audioGroup, args.NAME);
+        if (!audioSource) return;
+        
+        switch (args.TIMEPOS) {
+            case "start":
+                audioSource.startPosition = Cast.toNumber(args.TIME);
+                break;
+            case "end":
+                audioSource.endPosition = Cast.toNumber(args.TIME);
+                break;
+            case "start loop":
+                audioSource.loopStartPosition = Cast.toNumber(args.TIME);
+                break;
+            case "end loop":
+                audioSource.loopEndPosition = Cast.toNumber(args.TIME);
+                break;
+            case "time":
+                audioSource.setTimePosition(Cast.toNumber(args.TIME));
+                break;
+        }
     }
     audioSourceSetVolumeSpeedPitchPan(args) {
         const audioGroup = Helper.GetAudioGroup(args.AUDIOGROUP);
@@ -460,16 +551,17 @@ class AudioExtension {
         if (!audioSource) return;
         switch (args.VSPP) {
             case "volume":
-                audioSource.volume = Helper.Clamp(Helper.SafeNumberConvert(args.VALUE) / 100, 0, 1);
+                audioSource.volume = Helper.Clamp(Cast.toNumber(args.VALUE) / 100, 0, 1);
                 break;
             case "speed":
-                audioSource.speed = Helper.Clamp(Helper.SafeNumberConvert(args.VALUE) / 100, 0, Infinity);
+                audioSource.speed = Helper.Clamp(Cast.toNumber(args.VALUE) / 100, 0, Infinity);
                 break;
+            case "detune":
             case "pitch":
-                audioSource.pitch = Helper.SafeNumberConvert(args.VALUE);
+                audioSource.pitch = Cast.toNumber(args.VALUE);
                 break;
             case "pan":
-                audioSource.pan = Helper.Clamp(Helper.SafeNumberConvert(args.VALUE), -100, 100) / 100;
+                audioSource.pan = Helper.Clamp(Cast.toNumber(args.VALUE), -100, 100) / 100;
                 break;
         }
         Helper.UpdateAudioGroupSources(audioGroup);
@@ -482,6 +574,7 @@ class AudioExtension {
                 return audioGroup.globalVolume * 100;
             case "speed":
                 return audioGroup.globalSpeed * 100;
+            case "detune":
             case "pitch":
                 return audioGroup.globalPitch;
             case "pan":
@@ -516,16 +609,29 @@ class AudioExtension {
                 return audioSource.volume * 100;
             case "speed":
                 return audioSource.speed * 100;
+            case "detune":
             case "pitch":
                 return audioSource.pitch;
             case "pan":
                 return audioSource.pan * 100;
             case "start position":
-                return audioSource.timePosition;
+                return audioSource.startPosition;
+            case "end position":
+                return audioSource.endPosition;
+            case "start loop position":
+                return audioSource.loopStartPosition;
+            case "end loop position":
+                return audioSource.loopEndPosition;
+            case "time position":
+                return audioSource.getTimePosition();
             case "sound length":
                 return audioSource.duration;
             case "origin sound":
                 return audioSource.originAudioName;
+            case "output volume":
+                return audioSource.getVolume() * 100;
+            case "dominant frequency":
+                return audioSource.getFrequency();
             default:
                 return "";
         }

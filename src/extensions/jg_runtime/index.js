@@ -21,7 +21,7 @@ class JgRuntimeBlocks {
         this.runtime = runtime;
 
         // SharkPool
-        this.pausedScripts = Object.create({});
+        this.pausedScripts = Object.create(null);
 
         // ShovelUtils
         // Based on from https://www.growingwiththeweb.com/2017/12/fast-simple-js-fps-counter.html
@@ -36,7 +36,7 @@ class JgRuntimeBlocks {
             fps = times.length;
         });
         this.runtime.on('PROJECT_STOP_ALL', () => {
-            this.pausedScripts = Object.create({});
+            this.pausedScripts = Object.create(null);
         });
     }
 
@@ -69,7 +69,7 @@ class JgRuntimeBlocks {
                     arguments: {
                         URL: {
                             type: ArgumentType.STRING,
-                            defaultValue: 'https://api.allorigins.win/raw?url=https://github.com/PenguinMod/FreshPkg/raw/main/pkgs/anticors/anticors.sprite3'
+                            defaultValue: `https://corsproxy.io/?${encodeURIComponent('https://penguinmod.com/Sprite1.pms')}`
                         }
                     }
                 },
@@ -80,11 +80,11 @@ class JgRuntimeBlocks {
                     arguments: {
                         URL: {
                             type: ArgumentType.STRING,
-                            defaultValue: 'https://api.allorigins.win/raw?url=https://studio.penguinmod.com/static/assets/9525874be2b1d66bd448bf53400011a9.svg'
+                            defaultValue: `https://corsproxy.io/?${encodeURIComponent('https://penguinmod.com/navicon.png')}`
                         },
                         name: {
                             type: ArgumentType.STRING,
-                            defaultValue: 'blue flag'
+                            defaultValue: 'penguinmod'
                         }
                     }
                 },
@@ -95,11 +95,11 @@ class JgRuntimeBlocks {
                     arguments: {
                         URL: {
                             type: ArgumentType.STRING,
-                            defaultValue: 'https://pm-bapi.vercel.app/buauauau.mp3'
+                            defaultValue: 'https://extensions.turbowarp.org/meow.mp3'
                         },
                         NAME: {
                             type: ArgumentType.STRING,
-                            defaultValue: 'Buauauau'
+                            defaultValue: 'Meow'
                         }
                     }
                 },

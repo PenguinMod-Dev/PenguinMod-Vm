@@ -274,8 +274,52 @@ class JgDevBlocks {
                     forceOutputType: 'Boolean',
                     disableMonitor: true
                 },
+                {
+                    opcode: 'varvarvavvarvarvar',
+                    text: 'varibles!?!?!??!?!?!?!?!!!?!?! [variable]',
+                    arguments: {
+                        variable: {
+                            menu: 'variableInternal'
+                        }
+                    },
+                    blockType: BlockType.REPORTER
+                },
+                {
+                    opcode: 'green',
+                    text: 'im literally just green',
+                    blockType: BlockType.REPORTER,
+                    color1: '#00ff00',
+                    color2: '#000000',
+                    color3: '#000000',
+                    disableMonitor: true
+                },
+                {
+                    opcode: 'duplicato',
+                    text: 'duplicato',
+                    blockType: BlockType.REPORTER,
+                    canDragDuplicate: true,
+                    disableMonitor: true,
+                    hideFromPalette: true
+                },
+                {
+                    opcode: 'theheheuoihew9h9',
+                    blockType: BlockType.COMMAND,
+                    text: 'This block will appear in the penguinmod wiki [SEP] [DUPLIC]',
+                    arguments: {
+                        SEP: {
+                            type: ArgumentType.SEPERATOR,
+                        },
+                        DUPLIC: {
+                            type: ArgumentType.STRING,
+                            fillIn: 'duplicato',
+                        }
+                    }
+                },
             ],
             menus: {
+                variableInternal: {
+                    variableType: 'scalar'
+                },
                 variable: "getVariablesMenu",
                 numericTypeableTest: {
                     items: [
@@ -351,6 +395,10 @@ class JgDevBlocks {
         };
     }
 
+    varvarvavvarvarvar(args) {
+        return JSON.stringify(args);
+    }
+
     // menu
     getVariablesMenu() {
         // menus can only be opened in the editor so use editingTarget
@@ -367,6 +415,10 @@ class JgDevBlocks {
         });
         // check if menu has 0 items because pm throws an error if theres no items
         return (menu.length > 0) ? menu : emptyMenu;
+    }
+
+    branchIndicatorTest() {
+        return; // dude logs wont shut up because i didnt define this func
     }
 
     // util
@@ -466,6 +518,10 @@ class JgDevBlocks {
         if (!soundBank) return;
 
         soundBank.soundPlayers[soundId].stopFadeDecay = Cast.toNumber(args.SEX);
+    }
+
+    green() {
+        return 'g';
     }
 
     logArgs1(args) {

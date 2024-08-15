@@ -227,7 +227,6 @@ class Scratch3PenBlocks {
             this.runtime.renderer.updateDrawableSkinId(this.bitmapDrawableID, this.bitmapSkinID);
             this.runtime.renderer.updateDrawableVisible(this.bitmapDrawableID, false);
         }
-        this._penRes = this.runtime.renderer._allSkins[this._penSkinId].renderQuality;
         return this._penSkinId;
     }
 
@@ -1079,14 +1078,14 @@ class Scratch3PenBlocks {
         let resultFont = '';
         resultFont += `${this.printTextAttribute.italic ? 'italic ' : ''}`;
         resultFont += `${this.printTextAttribute.weight} `;
-        resultFont += `${this.printTextAttribute.size * this._penRes}px `;
+        resultFont += `${this.printTextAttribute.size}px `;
         resultFont += this.printTextAttribute.font;
         ctx.font = resultFont;
 
         ctx.strokeStyle = this.printTextAttribute.color;
         ctx.fillStyle = ctx.strokeStyle;
 
-        ctx.fillText(args.TEXT, args.X * this._penRes, -args.Y * this._penRes);
+        ctx.fillText(args.TEXT, args.X, -args.Y);
 
         this._drawContextToPen(ctx);
     }
@@ -1095,21 +1094,33 @@ class Scratch3PenBlocks {
         const image = this.preloadedImages[URI] ?? await new Promise((resolve, reject) => {
             const image = new Image();
             image.onload = () => resolve(image);
-            image.onerror = err => reject(err);
+            image.onerror = (err) => {
+                console.error('failed to load', URI, err);
+                reject('Image failed to load');
+            };
             image.src = URI;
         });
+
+        // protect the user from uninteligable errors that may be thrown but probably never will
+        if (!image.complete) throw new Error('the provided image never loaded')
+        if (image.width <= 0) throw new Error(`the image has an invalid width of ${image.width}`)
+        if (image.height <= 0) throw new Error(`the image has an invalid height of ${image.height}`)
+        
         const ctx = this._getBitmapCanvas();
+        // an error that really should never happen, but also shouldnt ever get to the user through here
+        if (ctx.canvas.width <= 0 && ctx.canvas.height <= 0) return;
+        
         ctx.rotate(MathUtil.degToRad(ROTATE - 90));
 
         // use sizes from the image if none specified
-        const width = (WIDTH ?? image.width) * this._penRes;
-        const height = (HEIGHT ?? image.height) * this._penRes;
-        const realX = (X * this._penRes) - (width / 2);
-        const realY = (-Y * this._penRes) - (height / 2);
+        const width = WIDTH ?? image.width;
+        const height = HEIGHT ?? image.height;
+        const realX = X - (width / 2);
+        const realY = -Y - (height / 2);
         const drawArgs = [CROPX, CROPY, CROPW, CROPH, realX, realY, width, height];
 
-        // if cropx or cropy are undefined then remove the crop args
-        if (typeof (CROPX ?? CROPY) === "undefined") {
+        // ensure that all of the drop values exist, just in case :Trollhans
+        if (!(typeof CROPX === "number" && typeof CROPY === "number" && CROPH && CROPH)) {
             drawArgs.splice(0, 4);
         }
 
@@ -1163,15 +1174,11 @@ class Scratch3PenBlocks {
     drawRect (args) {
         const ctx = this._getBitmapCanvas();
 
-        const hex = Cast.toString(args.COLOR);
+        const rgb = Cast.toRgbColorObject(args.COLOR);
+        const hex = Color.rgbToHex(rgb);
         ctx.fillStyle = hex;
         ctx.strokeStyle = ctx.fillStyle;
-        ctx.fillRect(
-            args.X * this._penRes,
-            -args.Y * this._penRes,
-            args.WIDTH * this._penRes,
-            args.HEIGHT * this._penRes
-        );
+        ctx.fillRect(args.X, -args.Y, args.WIDTH, args.HEIGHT);
 
         this._drawContextToPen(ctx);
     }
@@ -1195,14 +1202,15 @@ class Scratch3PenBlocks {
         const penSkin = this.runtime.renderer._allSkins[penSkinId];
         const width = penSkin._size[0];
         const height = penSkin._size[1];
-        const ctx = this.bitmapCanvas.getContext('2d');
-
         this.bitmapCanvas.width = width;
         this.bitmapCanvas.height = height;
 
+        const ctx = this.bitmapCanvas.getContext('2d');
+
         ctx.clearRect(0, 0, width, height);
-        ctx.save();
         ctx.translate(width / 2, height / 2);
+        // console.log(penSkin.renderQuality, this.bitmapCanvas.width, this.bitmapCanvas.height);
+        ctx.scale(penSkin.renderQuality, penSkin.renderQuality);
         return ctx;
     }
 
@@ -1525,7 +1533,7 @@ class Scratch3PenBlocks {
         const penState = this._getPenState(target);
         const penAttributes = penState.penAttributes;
         const penColor = this._getPenColor(util.target);
-        const points = args.SHAPE.map(pos => ({ x: pos.x * this._penRes, y: pos.y * this._penRes }));
+        const points = args.SHAPE;
         const firstPos = points.at(-1);
 
         const ctx = this._getBitmapCanvas();
@@ -1555,8 +1563,10 @@ class Scratch3PenBlocks {
     drawArrayComplexShape (args, util) {
         const providedData = Cast.toString(args.SHAPE);
         const providedPoints = parseArray(providedData); // ignores objects
-        if (providedPoints.length <= 0) return; // we can save processing by just ignoring empty arrays
-        if (providedPoints.length % 2 !== 0) providedPoints.push(0); // the last point is missing a Y value, Y will be 0 for that point
+        // we can save processing by just ignoring empty arrays
+        if (providedPoints.length <= 0) return;
+        // the last point is missing a Y value, Y will be 0 for that point
+        if (providedPoints.length % 2 !== 0) providedPoints.push(0);
         const points = [];
         let currentPoint = {};
         let isXCoord = true;

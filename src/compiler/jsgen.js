@@ -69,8 +69,6 @@ const generatorNameVariablePool = new VariablePool('gen');
  */
 class TypedInput {
     constructor (source, type) {
-        // for debugging
-        if (typeof type !== 'number') throw new Error('type is invalid');
         this.source = source;
         this.type = type;
     }
@@ -504,9 +502,10 @@ class JSGenerator {
 
     /**
      * @param {object} node Input node to compile.
+     * @param {boolean} visualReport if this is being called to get visual reporter content
      * @returns {Input} Compiled input.
      */
-    descendInput (node) {
+    descendInput (node, visualReport = false) {
         // check if we have extension js for this kind
         const extensionId = String(node.kind).split('.')[0];
         const blockId = String(node.kind).replace(extensionId + '.', '');
@@ -534,12 +533,14 @@ class JSGenerator {
         case 'compat':
             // Compatibility layer inputs never use flags.
             // log.log('compat')
-            return new TypedInput(`(${this.generateCompatibilityLayerCall(node, false)})`, TYPE_UNKNOWN);
+            return new TypedInput(`(${this.generateCompatibilityLayerCall(node, false, null, visualReport)})`, TYPE_UNKNOWN);
 
         case 'constant':
             return this.safeConstantInput(node.value);
         case 'counter.get':
             return new TypedInput('runtime.ext_scratch3_control._counter', TYPE_NUMBER);
+        case 'control.error':
+            return new TypedInput('runtime.ext_scratch3_control._error', TYPE_STRING);
         case 'math.polygon':
             let points = JSON.stringify(node.points.map((point, num) => ({x: `x${num}`, y: `y${num}`})));
             for (let num = 0; num < node.points.length; num++) {
@@ -598,11 +599,18 @@ class JSGenerator {
         }
         case 'list.indexOf':
             return new TypedInput(`listIndexOf(${this.referenceVariable(node.list)}, ${this.descendInput(node.item).asUnknown()})`, TYPE_NUMBER);
+        case 'list.amountOf':
+            return new TypedInput(`${this.referenceVariable(node.list)}.value.filter((x) => x == ${this.descendInput(node.value).asUnknown()}).length`, TYPE_NUMBER);
         case 'list.length':
             return new TypedInput(`${this.referenceVariable(node.list)}.value.length`, TYPE_NUMBER);
 
+        case 'list.filteritem':
+            return new TypedInput('runtime.ext_scratch3_data._listFilterItem', TYPE_UNKNOWN);
+        case 'list.filterindex':
+            return new TypedInput('runtime.ext_scratch3_data._listFilterIndex', TYPE_UNKNOWN);
+
         case 'looks.size':
-            return new TypedInput('Math.round(target.size)', TYPE_NUMBER);
+            return new TypedInput('target.size', TYPE_NUMBER);
         case 'looks.tintColor':
             return new TypedInput('runtime.ext_scratch3_looks.getTintColor(null, { target: target })', TYPE_NUMBER);
         case 'looks.backdropName':
@@ -645,6 +653,8 @@ class JSGenerator {
         case 'pmEventsExpansion.broadcastFunction':
             // we need to do function otherwise this block would be stupidly long
             let source = '(yield* (function*() {';
+            source += `var broadcastVar = runtime.getTargetForStage().lookupBroadcastMsg("", ${this.descendInput(node.broadcast).asString()} );`;
+            source += `if (broadcastVar) broadcastVar.isSent = true;`;
             const threads = this.localVariables.next();
             source += `var ${threads} = startHats("event_whenbroadcastreceived", { BROADCAST_OPTION: ${this.descendInput(node.broadcast).asString()} });`;
             const threadVar = this.localVariables.next();
@@ -676,6 +686,8 @@ class JSGenerator {
             // we need to do function otherwise this block would be stupidly long
             let source = '(yield* (function*() {';
             const threads = this.localVariables.next();
+            source += `var broadcastVar = runtime.getTargetForStage().lookupBroadcastMsg("", ${this.descendInput(node.broadcast).asString()} );`;
+            source += `if (broadcastVar) broadcastVar.isSent = true;`;
             source += `var ${threads} = startHats("event_whenbroadcastreceived", { BROADCAST_OPTION: ${this.descendInput(node.broadcast).asString()} });`;
             const threadVar = this.localVariables.next();
             source += `for (const ${threadVar} of ${threads}) { ${threadVar}.__evex_recievedDataa = ${this.descendInput(node.args).asString()} };`;
@@ -900,6 +912,8 @@ class JSGenerator {
                         return new TypedInput(`(${objectReference} ? ${objectReference}.currentCostume + 1 : 0)`, TYPE_NUMBER);
                     case 'costume name':
                         return new TypedInput(`(${objectReference} ? ${objectReference}.getCostumes()[${objectReference}.currentCostume].name : 0)`, TYPE_UNKNOWN);
+                    case 'layer':
+                        return new TypedInput(`(${objectReference} ? ${objectReference}.getLayerOrder() : 0)`, TYPE_NUMBER);
                     case 'size':
                         return new TypedInput(`(${objectReference} ? ${objectReference}.size : 0)`, TYPE_NUMBER);
                     }
@@ -911,12 +925,16 @@ class JSGenerator {
         }
         case 'sensing.second':
             return new TypedInput(`(new Date().getSeconds())`, TYPE_NUMBER);
+        case 'sensing.timestamp':
+            return new TypedInput(`(Date.now())`, TYPE_NUMBER);
         case 'sensing.touching':
             return new TypedInput(`target.isTouchingObject(${this.descendInput(node.object).asUnknown()})`, TYPE_BOOLEAN);
         case 'sensing.touchingColor':
             return new TypedInput(`target.isTouchingColor(colorToList(${this.descendInput(node.color).asColor()}))`, TYPE_BOOLEAN);
         case 'sensing.username':
             return new TypedInput('runtime.ioDevices.userData.getUsername()', TYPE_STRING);
+        case 'sensing.loggedin':
+            return new TypedInput('runtime.ioDevices.userData.getLoggedIn()', TYPE_STRING);
         case 'sensing.year':
             return new TypedInput(`(new Date().getFullYear())`, TYPE_NUMBER);
 
@@ -972,16 +990,34 @@ class JSGenerator {
 
         case 'tempVars.get': {
             const name = this.descendInput(node.var);
+            const hostObj = node.runtime 
+                ? 'runtime.variables' 
+                : node.thread 
+                    ? 'thread.variables' 
+                    : 'tempVars';
             if (environment.supportsNullishCoalescing) {
-                return new TypedInput(`(tempVars[${name.asString()}] ?? "")`, TYPE_UNKNOWN);
+                return new TypedInput(`(${hostObj}[${name.asString()}] ?? "")`, TYPE_UNKNOWN);
             }
-            return new TypedInput(`nullish(${name.asString()}, "")`, TYPE_UNKNOWN);
+            return new TypedInput(`nullish(${hostObj}[${name.asString()}], "")`, TYPE_UNKNOWN);
         }
         case 'tempVars.exists': {
             const name = this.descendInput(node.var);
-            return new TypedInput(`!!tempVars[${name.asString()}]`, TYPE_BOOLEAN);
+            const hostObj = node.runtime 
+                ? 'runtime.variables' 
+                : node.thread 
+                    ? 'thread.variables' 
+                    : 'tempVars';
+            return new TypedInput(`${name.asString()} in ${hostObj}`, TYPE_BOOLEAN);
         }
         case 'tempVars.all':
+            const hostObj = node.runtime 
+                ? 'runtime.variables' 
+                : node.thread 
+                    ? 'thread.variables' 
+                    : 'tempVars';
+            if (node.runtime || node.thread) {
+                return new TypedInput(`Object.keys(${hostObj}).join(',')`);
+            }
             return new TypedInput(`JSON.stringify(Object.keys(tempVars))`, TYPE_STRING);
 
         default:
@@ -1141,10 +1177,17 @@ class JSGenerator {
             break;
         case 'control.exitLoop':
             if (!this.currentFrame.importantData.containedByLoop) {
-                this.source += `throw 'All "exit loop" blocks must be inside of a looping block.';`;
+                this.source += `throw 'All "escape loop" blocks must be inside of a looping block.';`;
                 break;
             }
             this.source += `break;\n`;
+            break;
+        case 'control.continueLoop':
+            if (!this.currentFrame.importantData.containedByLoop) {
+                this.source += `throw 'All "continue loop" blocks must be inside of a looping block.';`;
+                break;
+            }
+            this.source += `continue;\n`;
             break;
         case 'control.if':
             this.source += `if (${this.descendInput(node.condition).asBoolean()}) {\n`;
@@ -1157,6 +1200,20 @@ class JSGenerator {
             }
             this.source += `}\n`;
             break;
+        case 'control.trycatch':
+            this.source += `try {\n`;
+            this.descendStack(node.try, new Frame(false, 'control.trycatch'));
+            const error = this.localVariables.next();
+            this.source += `} catch (${error}) {\n`;
+            this.source += `runtime.ext_scratch3_control._error = String(${error});\n`;
+            this.descendStack(node.catch, new Frame(false, 'control.trycatch'));
+            this.source += `}\n`;
+            break;
+        case 'control.throwError': {
+            const error = this.descendInput(node.error).asString();
+            this.source += `throw ${error};\n`;
+            break;
+        }
         case 'control.repeat': {
             const i = this.localVariables.next();
             this.source += `for (var ${i} = ${this.descendInput(node.times).asNumber()}; ${i} >= 0.5; ${i}--) {\n`;
@@ -1323,10 +1380,14 @@ class JSGenerator {
             this.isInHat = false;
             break;
         case 'event.broadcast':
+            this.source += `var broadcastVar = runtime.getTargetForStage().lookupBroadcastMsg("", ${this.descendInput(node.broadcast).asString()} );`;
+            this.source += `if (broadcastVar) broadcastVar.isSent = true;`;
             this.source += `startHats("event_whenbroadcastreceived", { BROADCAST_OPTION: ${this.descendInput(node.broadcast).asString()} });\n`;
             this.resetVariableInputs();
             break;
         case 'event.broadcastAndWait':
+            this.source += `var broadcastVar = runtime.getTargetForStage().lookupBroadcastMsg("", ${this.descendInput(node.broadcast).asString()} );`;
+            this.source += `if (broadcastVar) broadcastVar.isSent = true;`;
             this.source += `yield* waitThreads(startHats("event_whenbroadcastreceived", { BROADCAST_OPTION: ${this.descendInput(node.broadcast).asString()} }));\n`;
             this.yielded();
             break;
@@ -1370,6 +1431,13 @@ class JSGenerator {
         case 'list.deleteAll':
             this.source += `${this.referenceVariable(node.list)}.value = [];\n`;
             break;
+        case 'list.shift':
+            const list = this.referenceVariable(node.list);
+            const index = this.descendInput(node.index).asNumber();
+            if (index <= 0) break;
+            this.source += `${list}.value = ${list}.value.slice(${index});\n`
+            this.source += `${list}._monitorUpToDate = false;\n`
+            break
         case 'list.hide':
             this.source += `runtime.monitorBlocks.changeBlock({ id: "${sanitize(node.list.id)}", element: "checkbox", value: false }, runtime);\n`;
             break;
@@ -1390,6 +1458,16 @@ class JSGenerator {
             break;
         case 'list.show':
             this.source += `runtime.monitorBlocks.changeBlock({ id: "${sanitize(node.list.id)}", element: "checkbox", value: true }, runtime);\n`;
+            break;
+        
+        case 'list.filter':
+            this.source += `${this.referenceVariable(node.list)}.value = ${this.referenceVariable(node.list)}.value.filter(function (item, index) {`;
+            this.source += `    runtime.ext_scratch3_data._listFilterItem = item;`;
+            this.source += `    runtime.ext_scratch3_data._listFilterIndex = index + 1;`;
+            this.source += `    return ${this.descendInput(node.bool).asBoolean()};`;
+            this.source += `})`;
+            this.source += `runtime.ext_scratch3_data._listFilterItem = "";`;
+            this.source += `runtime.ext_scratch3_data._listFilterIndex = 0;`;
             break;
 
         case 'looks.backwardLayers':
@@ -1421,6 +1499,23 @@ class JSGenerator {
         case 'looks.goToFront':
             if (!this.target.isStage) {
                 this.source += 'target.goToFront();\n';
+            }
+            break;
+        case 'looks.targetFront':
+            if (!this.target.isStage) {
+                const reqTarget = this.target.runtime.getSpriteTargetByName(node.layers.value);
+                if (reqTarget) {
+                    this.source += `target.goBehindOther(${JSON.stringify(reqTarget)});\n`;
+                    this.source += `target.goForwardLayers(1);\n`;
+                }
+            }
+            break;
+        case 'looks.targetBack':
+            if (!this.target.isStage) {
+                const reqTarget = this.target.runtime.getSpriteTargetByName(node.layers.value);
+                if (reqTarget && reqTarget.getLayerOrder() < this.target.getLayerOrder()) {
+                    this.source += `target.goBehindOther(${JSON.stringify(reqTarget)});\n`;
+                }
             }
             break;
         case 'looks.hide':
@@ -1605,7 +1700,7 @@ class JSGenerator {
 
         case 'visualReport': {
             const value = this.localVariables.next();
-            this.source += `const ${value} = ${this.descendInput(node.input).asUnknown()};`;
+            this.source += `const ${value} = ${this.descendInput(node.input, true).asUnknown()};`;
             // blocks like legacy no-ops can return a literal `undefined`
             this.source += `if (${value} !== undefined) runtime.visualReport("${sanitize(this.script.topBlockId)}", ${value});\n`;
             break;
@@ -1660,28 +1755,53 @@ class JSGenerator {
         case 'tempVars.set': {
             const name = this.descendInput(node.var);
             const val = this.descendInput(node.val);
-            this.source += `tempVars[${name.asString()}] = ${val.asUnknown()};`;
+            const hostObj = node.runtime 
+                ? 'runtime.variables' 
+                : node.thread 
+                    ? 'thread.variables' 
+                    : 'tempVars';
+            this.source += `${hostObj}[${name.asString()}] = ${val.asUnknown()};`;
             break;
         }
         case 'tempVars.change': {
             const name = this.descendInput(node.var);
             const val = this.descendInput(node.val);
-            this.source += `tempVars[${name.asString()}] += ${val.asUnknown()};`;
+            const hostObj = node.runtime 
+                ? 'runtime.variables' 
+                : node.thread 
+                    ? 'thread.variables' 
+                    : 'tempVars';
+            this.source += `${hostObj}[${name.asString()}] += ${val.asUnknown()};`;
             break;
         }
         case 'tempVars.delete': {
             const name = this.descendInput(node.var);
-            this.source += `delete tempVars[${name.asString()}];`;
+            const hostObj = node.runtime 
+                ? 'runtime.variables' 
+                : node.thread 
+                    ? 'thread.variables' 
+                    : 'tempVars';
+            this.source += `delete ${hostObj}[${name.asString()}];`;
             break;
         }
         case 'tempVars.deleteAll': {
-            this.source += `tempVars = {};`;
+            const hostObj = node.runtime 
+                ? 'runtime.variables' 
+                : node.thread 
+                    ? 'thread.variables' 
+                    : 'tempVars';
+            this.source += `${hostObj} = Object.create(null);`;
             break;
         }
         case 'tempVars.forEach': {
             const name = this.descendInput(node.var);
             const loops = this.descendInput(node.loops);
-            const index = `tempVars[${name.asString()}]`;
+            const hostObj = node.runtime 
+                ? 'runtime.variables' 
+                : node.thread 
+                    ? 'thread.variables' 
+                    : 'tempVars';
+            const index = `${hostObj}[${name.asString()}]`;
             this.source += `${index} = 0; `;
             this.source += `while (${index} < ${loops.asNumber()}) { `;
             this.source += `${index}++;\n`;
@@ -1825,9 +1945,10 @@ class JSGenerator {
      * @param {*} node The "compat" kind node to generate from.
      * @param {boolean} setFlags Whether flags should be set describing how this function was processed.
      * @param {string|null} [frameName] Name of the stack frame variable, if any
+     * @param {boolean} visualReport if this is being called to get visual reporter content
      * @returns {string} The JS of the call.
      */
-    generateCompatibilityLayerCall (node, setFlags, frameName = null) {
+    generateCompatibilityLayerCall (node, setFlags, frameName = null, visualReport) {
         const opcode = node.opcode;
 
         let result = 'yield* executeInCompatibilityLayer({';
@@ -1846,29 +1967,14 @@ class JSGenerator {
         for (const fieldName of Object.keys(node.fields)) {
             const field = node.fields[fieldName];
             if (typeof field !== 'string') {
-                let variable;
-                // log.log(field)
-                switch (field.type) {
-                case 'broadcast_msg':
-                    variable = JSON.stringify(field);
-                    break;
-                case 'list':
-                    variable = this.referenceVariable(field);
-                    break;
-                case '':
-                    variable = this.descendVariable(field).source;
-                    break;
-                }
-                // console.log(this.descendVariable(field))
-                result += `"${sanitize(fieldName)}":${variable},`;
-                // result += `"_field_${sanitize(fieldName)}":${JSON.stringify(field)},`;
+                result += `"${sanitize(fieldName)}":${JSON.stringify(field)},`;
                 continue;
             }
             result += `"${sanitize(fieldName)}":"${sanitize(field)}",`;
         }
         result += `"mutation":${JSON.stringify(node.mutation)},`;
         const opcodeFunction = this.evaluateOnce(`runtime.getOpcodeFunction("${sanitize(opcode)}")`);
-        result += `}, ${opcodeFunction}, ${this.isWarp}, ${setFlags}, "${sanitize(node.id)}", ${frameName})`;
+        result += `}, ${opcodeFunction}, ${this.isWarp}, ${setFlags}, "${sanitize(node.id)}", ${frameName}, ${visualReport})`;
 
         return result;
     }
@@ -1924,7 +2030,7 @@ class JSGenerator {
             script += args.join(',');
         }
         script += ') {\n';
-        script += 'let tempVars = {};';
+        script += 'let tempVars = Object.create(null);';
 
         // pm: check if we are spoofing the target
         // ex: as (Sprite) {} block needs to replace the target
@@ -1940,6 +2046,7 @@ class JSGenerator {
         script += this.source;
 
         script += '} catch (err) {';
+        script += `console.log("${sanitize(script)}");`;
         script += 'console.error(err);';
         script += `runtime.emit("BLOCK_STACK_ERROR", {`;
         script += `id:"${sanitize(this.script.topBlockId)}",`;

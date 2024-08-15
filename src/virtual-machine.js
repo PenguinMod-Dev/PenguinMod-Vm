@@ -16,7 +16,9 @@ const MathUtil = require('./util/math-util');
 const Runtime = require('./engine/runtime');
 const StringUtil = require('./util/string-util');
 const RenderedTarget = require('./sprites/rendered-target');
+const StageLayering = require('./engine/stage-layering');
 const Sprite = require('./sprites/sprite');
+const Blocks = require('./engine/blocks');
 const formatMessage = require('format-message');
 
 const Variable = require('./engine/variable');
@@ -243,7 +245,13 @@ class VirtualMachine extends EventEmitter {
             JSZip,
             JSGenerator,
             IRGenerator,
-            jsexecute
+            jsexecute,
+            loadCostume,
+            loadSound,
+            Blocks,
+            StageLayering,
+            Thread: require('./engine/thread.js'),
+            execute: require('./engine/execute.js')
         };
     }
 
@@ -528,6 +536,13 @@ class VirtualMachine extends EventEmitter {
         zip.file('project.json', projectJson);
         this._addFileDescsToZip(this.serializeAssets(), zip);
 
+        // Use a fixed modification date for the files in the zip instead of letting JSZip use the
+        // current time to avoid a very small metadata leak and make zipping deterministic. The magic
+        // number is from the first TurboWarp/scratch-vm commit after forking
+        const date = new Date(1591657163000);
+        for (const file of Object.values(zip.files)) {
+            file.date = date;
+        }
         return zip;
     }
 
@@ -1315,7 +1330,36 @@ class VirtualMachine extends EventEmitter {
      * @property {number} [bitmapResolution] - the resolution scale for a bitmap backdrop.
      * @returns {?Promise} - a promise that resolves when the backdrop has been added
      */
-    addBackdrop (md5ext, backdropObject) {
+    addBackdrop(md5ext, backdropObject) {
+        if (backdropObject.fromPenguinModLibrary === true) {
+            return new Promise((resolve, reject) => {
+                fetch(`${PM_LIBRARY_API}files/${backdropObject.libraryId}`)
+                    .then((r) => r.arrayBuffer())
+                    .then((arrayBuffer) => {
+                        const dataFormat = backdropObject.dataFormat;
+                        const storage = this.runtime.storage;
+                        const asset = new storage.Asset(
+                            storage.AssetType[dataFormat === 'svg' ? "ImageVector" : "ImageBitmap"],
+                            null,
+                            storage.DataFormat[dataFormat.toUpperCase()],
+                            new Uint8Array(arrayBuffer),
+                            true
+                        );
+                        const newCostumeObject = {
+                            md5: asset.assetId + '.' + asset.dataFormat,
+                            asset: asset,
+                            name: backdropObject.name
+                        }
+                        loadCostume(newCostumeObject.md5, newCostumeObject, this.runtime).then(costumeAsset => {
+                            const stage = this.runtime.getTargetForStage();
+                            stage.addCostume(newCostumeObject);
+                            stage.setCostume(stage.getCostumes().length - 1);
+                            this.runtime.emitProjectChanged();
+                            resolve(costumeAsset, newCostumeObject);
+                        })
+                    }).catch(reject);
+            });
+        }
         return loadCostume(md5ext, backdropObject, this.runtime).then(() => {
             const stage = this.runtime.getTargetForStage();
             stage.addCostume(backdropObject);
